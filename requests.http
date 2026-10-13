@@ -1,0 +1,124 @@
+
+### Request 1 saves the new listing's id; later requests reuse it as {{listingId}}.
+@base = http://localhost:8080/api
+
+############################ SUCCESS ############################
+
+### 1. Host creates a listing  -> 201
+POST {{base}}/host/listings
+X-Host-Id: host-1
+Content-Type: application/json
+
+{"title": "Beach House", "description": "Sea view", "pricePerNight": 100}
+
+> {% client.global.set("listingId", response.body.id); %}
+
+### 2. Anyone browses listings (no header)  -> 200
+GET {{base}}/listings
+
+### 3. Anyone views one listing  -> 200
+GET {{base}}/listings/{{listingId}}
+
+### 4. Host views their own listings  -> 200
+GET {{base}}/host/listings
+X-Host-Id: host-1
+
+### 5. Host updates their listing  -> 200
+PUT {{base}}/host/listings/{{listingId}}
+X-Host-Id: host-1
+Content-Type: application/json
+
+{"title": "Beach House", "description": "Renovated", "pricePerNight": 120}
+
+### 6. Guest books 3 nights  -> 201, totalPrice = 3 x 120 = 360.00
+POST {{base}}/bookings
+X-Guest-Id: guest-1
+Content-Type: application/json
+
+{"listingId": {{listingId}}, "startDate": "2026-12-01", "endDate": "2026-12-04"}
+
+### 7. Guest views their bookings  -> 200
+GET {{base}}/bookings
+X-Guest-Id: guest-1
+
+### 8. Host views bookings on their listings  -> 200
+GET {{base}}/host/bookings
+X-Host-Id: host-1
+
+########################### BUSINESS RULES ###########################
+
+### R1. Overlapping dates (Dec 3-5 overlaps Dec 1-4)  -> 409
+POST {{base}}/bookings
+X-Guest-Id: guest-2
+Content-Type: application/json
+
+{"listingId": {{listingId}}, "startDate": "2026-12-03", "endDate": "2026-12-05"}
+
+### R2. Back-to-back is allowed (check in on Dec 4, the day guest-1 checks out)  -> 201
+POST {{base}}/bookings
+X-Guest-Id: guest-2
+Content-Type: application/json
+
+{"listingId": {{listingId}}, "startDate": "2026-12-04", "endDate": "2026-12-05"}
+
+### R3. Host cannot book their own listing  -> 400
+POST {{base}}/bookings
+X-Guest-Id: host-1
+Content-Type: application/json
+
+{"listingId": {{listingId}}, "startDate": "2027-01-10", "endDate": "2027-01-12"}
+
+### R4. Start date in the past  -> 400
+POST {{base}}/bookings
+X-Guest-Id: guest-2
+Content-Type: application/json
+
+{"listingId": {{listingId}}, "startDate": "2020-01-01", "endDate": "2020-01-03"}
+
+### R5. End date not after start date  -> 400
+POST {{base}}/bookings
+X-Guest-Id: guest-2
+Content-Type: application/json
+
+{"listingId": {{listingId}}, "startDate": "2027-01-10", "endDate": "2027-01-10"}
+
+### R6. Booking a listing that doesn't exist  -> 404
+POST {{base}}/bookings
+X-Guest-Id: guest-2
+Content-Type: application/json
+
+{"listingId": 999999, "startDate": "2027-01-10", "endDate": "2027-01-12"}
+
+### R7. Another host tries to update host-1's listing  -> 404
+PUT {{base}}/host/listings/{{listingId}}
+X-Host-Id: host-2
+Content-Type: application/json
+
+{"title": "Hijacked", "pricePerNight": 1}
+
+### R8. Listing without a title  -> 400
+POST {{base}}/host/listings
+X-Host-Id: host-1
+Content-Type: application/json
+
+{"pricePerNight": 50}
+
+### R9. Price must be > 0  -> 400
+POST {{base}}/host/listings
+X-Host-Id: host-1
+Content-Type: application/json
+
+{"title": "Free room", "pricePerNight": 0}
+
+### R10. Missing identity header  -> 401
+GET {{base}}/bookings
+
+### R11. Malformed JSON / bad date format / non-numeric id  -> 400
+POST {{base}}/bookings
+X-Guest-Id: guest-2
+Content-Type: application/json
+
+{"listingId": {{listingId}}, "startDate": "01/12/2026", "endDate": "2026-12-05"}
+
+### R12. Non-numeric id in the path  -> 400
+GET {{base}}/listings/abc
